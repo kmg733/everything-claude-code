@@ -29,7 +29,8 @@ process.stdin.setEncoding('utf8');
 
 process.stdin.on('data', chunk => {
   if (stdinData.length < MAX_STDIN) {
-    stdinData += chunk;
+    const remaining = MAX_STDIN - stdinData.length;
+    stdinData += chunk.substring(0, remaining);
   }
 });
 
@@ -64,7 +65,7 @@ async function main() {
   if (configContent) {
     try {
       const config = JSON.parse(configContent);
-      minSessionLength = config.min_session_length || 10;
+      minSessionLength = config.min_session_length ?? 10;
 
       if (config.learned_skills_path) {
         // Handle ~ in path

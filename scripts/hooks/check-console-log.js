@@ -32,14 +32,15 @@ process.stdin.setEncoding('utf8');
 
 process.stdin.on('data', chunk => {
   if (data.length < MAX_STDIN) {
-    data += chunk;
+    const remaining = MAX_STDIN - data.length;
+    data += chunk.substring(0, remaining);
   }
 });
 
 process.stdin.on('end', () => {
   try {
     if (!isGitRepo()) {
-      console.log(data);
+      process.stdout.write(data);
       process.exit(0);
     }
 
@@ -65,5 +66,6 @@ process.stdin.on('end', () => {
   }
 
   // Always output the original data
-  console.log(data);
+  process.stdout.write(data);
+  process.exit(0);
 });

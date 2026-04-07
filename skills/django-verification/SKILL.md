@@ -1,6 +1,7 @@
 ---
 name: django-verification
 description: "Verification loop for Django projects: migrations, linting, tests with coverage, security scans, and deployment readiness checks before release or PR."
+origin: ECC
 ---
 
 # Django Verification Loop
@@ -356,7 +357,7 @@ Phase 12: Diff Review
   ✓ No hardcoded secrets
   ✓ Migrations included
 
-RECOMMENDATION: ⚠️ Fix pip-audit vulnerabilities before deploying
+RECOMMENDATION: WARNING: Fix pip-audit vulnerabilities before deploying
 
 NEXT STEPS:
 1. Update vulnerable dependencies

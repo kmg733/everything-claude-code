@@ -282,7 +282,7 @@ function setProjectPackageManager(pmName, projectDir = process.cwd()) {
 
 // Allowed characters in script/binary names: alphanumeric, dash, underscore, dot, slash, @
 // This prevents shell metacharacter injection while allowing scoped packages (e.g., @scope/pkg)
-const SAFE_NAME_REGEX = /^[@a-zA-Z0-9_.\/-]+$/;
+const SAFE_NAME_REGEX = /^[@a-zA-Z0-9_./-]+$/;
 
 /**
  * Get the command to run a script
@@ -314,11 +314,15 @@ function getRunCommand(script, options = {}) {
   }
 }
 
+// Allowed characters in arguments: alphanumeric, whitespace, dashes, dots, slashes,
+// equals, colons, commas, quotes, @. Rejects shell metacharacters like ; | & ` $ ( ) { } < > !
+const SAFE_ARGS_REGEX = /^[@a-zA-Z0-9\s_./:=,'"*+-]+$/;
+
 /**
  * Get the command to execute a package binary
  * @param {string} binary - Binary name (e.g., "prettier", "eslint")
  * @param {string} args - Arguments to pass
- * @throws {Error} If binary name contains unsafe characters
+ * @throws {Error} If binary name or args contain unsafe characters
  */
 function getExecCommand(binary, args = '', options = {}) {
   if (!binary || typeof binary !== 'string') {
@@ -326,6 +330,9 @@ function getExecCommand(binary, args = '', options = {}) {
   }
   if (!SAFE_NAME_REGEX.test(binary)) {
     throw new Error(`Binary name contains unsafe characters: ${binary}`);
+  }
+  if (args && typeof args === 'string' && !SAFE_ARGS_REGEX.test(args)) {
+    throw new Error(`Arguments contain unsafe characters: ${args}`);
   }
 
   const pm = getPackageManager(options);
@@ -351,6 +358,11 @@ function getSelectionPrompt() {
   return message;
 }
 
+// Escape regex metacharacters in a string before interpolating into a pattern
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Generate a regex pattern that matches commands for all package managers
  * @param {string} action - Action pattern (e.g., "run dev", "install", "test")
@@ -358,28 +370,31 @@ function getSelectionPrompt() {
 function getCommandPattern(action) {
   const patterns = [];
 
-  if (action === 'dev') {
+  // Trim spaces from action to handle leading/trailing whitespace gracefully
+  const trimmedAction = action.trim();
+
+  if (trimmedAction === 'dev') {
     patterns.push(
       'npm run dev',
       'pnpm( run)? dev',
       'yarn dev',
       'bun run dev'
     );
-  } else if (action === 'install') {
+  } else if (trimmedAction === 'install') {
     patterns.push(
       'npm install',
       'pnpm install',
       'yarn( install)?',
       'bun install'
     );
-  } else if (action === 'test') {
+  } else if (trimmedAction === 'test') {
     patterns.push(
       'npm test',
       'pnpm test',
       'yarn test',
       'bun test'
     );
-  } else if (action === 'build') {
+  } else if (trimmedAction === 'build') {
     patterns.push(
       'npm run build',
       'pnpm( run)? build',
@@ -387,12 +402,13 @@ function getCommandPattern(action) {
       'bun run build'
     );
   } else {
-    // Generic run command
+    // Generic run command — escape regex metacharacters in action
+    const escaped = escapeRegex(trimmedAction);
     patterns.push(
-      `npm run ${action}`,
-      `pnpm( run)? ${action}`,
-      `yarn ${action}`,
-      `bun run ${action}`
+      `npm run ${escaped}`,
+      `pnpm( run)? ${escaped}`,
+      `yarn ${escaped}`,
+      `bun run ${escaped}`
     );
   }
 

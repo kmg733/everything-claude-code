@@ -51,13 +51,13 @@ source: "session-observation"
 ## 仕組み
 
 ```
-Session Activity
+セッションアクティビティ
       │
       │ フックがプロンプト + ツール使用をキャプチャ（100%信頼性）
       ▼
 ┌─────────────────────────────────────────┐
 │         observations.jsonl              │
-│   (prompts, tool calls, outcomes)       │
+│   （プロンプト、ツール呼び出し、結果）       │
 └─────────────────────────────────────────┘
       │
       │ Observerエージェントが読み取り（バックグラウンド、Haiku）
@@ -276,7 +276,7 @@ v2はv1と完全に互換性があります：
 ## 関連
 
 - [Skill Creator](https://skill-creator.app) - リポジトリ履歴からインスティンクトを生成
-- [Homunculus](https://github.com/humanplane/homunculus) - v2アーキテクチャのインスピレーション
+- Homunculus - v2アーキテクチャのインスピレーション（アトミック観察、信頼度スコアリング、インスティンクト進化パイプライン）
 - [The Longform Guide](https://x.com/affaanmustafa/status/2014040193557471352) - 継続的学習セクション
 
 ---

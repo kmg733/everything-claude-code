@@ -1,5 +1,4 @@
 # Rules
-
 ## Structure
 
 Rules are organized into a **common** layer plus **language-specific** directories:
@@ -17,7 +16,10 @@ rules/
 │   └── security.md
 ├── typescript/      # TypeScript/JavaScript specific
 ├── python/          # Python specific
-└── golang/          # Go specific
+├── golang/          # Go specific
+├── web/             # Web and frontend specific
+├── swift/           # Swift specific
+└── php/             # PHP specific
 ```
 
 - **common/** contains universal principles — no language-specific code examples.
@@ -32,6 +34,9 @@ rules/
 ./install.sh typescript
 ./install.sh python
 ./install.sh golang
+./install.sh web
+./install.sh swift
+./install.sh php
 
 # Install multiple languages at once
 ./install.sh typescript python
@@ -53,6 +58,9 @@ cp -r rules/common ~/.claude/rules/common
 cp -r rules/typescript ~/.claude/rules/typescript
 cp -r rules/python ~/.claude/rules/python
 cp -r rules/golang ~/.claude/rules/golang
+cp -r rules/web ~/.claude/rules/web
+cp -r rules/swift ~/.claude/rules/swift
+cp -r rules/php ~/.claude/rules/php
 
 # Attention ! ! ! Configure according to your actual project requirements; the configuration here is for reference only.
 ```
@@ -80,3 +88,24 @@ To add support for a new language (e.g., `rust/`):
    > This file extends [common/xxx.md](../common/xxx.md) with <Language> specific content.
    ```
 4. Reference existing skills if available, or create new ones under `skills/`.
+
+For non-language domains like `web/`, follow the same layered pattern when there is enough reusable domain-specific guidance to justify a standalone ruleset.
+
+## Rule Priority
+
+When language-specific rules and common rules conflict, **language-specific rules take precedence** (specific overrides general). This follows the standard layered configuration pattern (similar to CSS specificity or `.gitignore` precedence).
+
+- `rules/common/` defines universal defaults applicable to all projects.
+- `rules/golang/`, `rules/python/`, `rules/swift/`, `rules/php/`, `rules/typescript/`, etc. override those defaults where language idioms differ.
+
+### Example
+
+`common/coding-style.md` recommends immutability as a default principle. A language-specific `golang/coding-style.md` can override this:
+
+> Idiomatic Go uses pointer receivers for struct mutation — see [common/coding-style.md](../common/coding-style.md) for the general principle, but Go-idiomatic mutation is preferred here.
+
+### Common rules with override notes
+
+Rules in `rules/common/` that may be overridden by language-specific files are marked with:
+
+> **Language note**: This rule may be overridden by language-specific rules for languages where this pattern is not idiomatic.

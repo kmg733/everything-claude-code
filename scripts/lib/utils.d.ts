@@ -18,8 +18,14 @@ export function getHomeDir(): string;
 /** Get the Claude config directory (~/.claude) */
 export function getClaudeDir(): string;
 
-/** Get the sessions directory (~/.claude/sessions) */
+/** Get the canonical ECC sessions directory (~/.claude/session-data) */
 export function getSessionsDir(): string;
+
+/** Get the legacy Claude-managed sessions directory (~/.claude/sessions) */
+export function getLegacySessionsDir(): string;
+
+/** Get session directories to search, with canonical storage first and legacy fallback second */
+export function getSessionSearchDirs(): string[];
 
 /** Get the learned skills directory (~/.claude/skills/learned) */
 export function getLearnedSkillsDir(): string;
@@ -48,8 +54,15 @@ export function getDateTimeString(): string;
 // --- Session/Project ---
 
 /**
+ * Sanitize a string for use as a session filename segment.
+ * Replaces invalid characters, strips leading dots, and returns null when
+ * nothing meaningful remains. Non-ASCII names are hashed for stability.
+ */
+export function sanitizeSessionId(raw: string | null | undefined): string | null;
+
+/**
  * Get short session ID from CLAUDE_SESSION_ID environment variable.
- * Returns last 8 characters, falls back to project name then the provided fallback.
+ * Returns last 8 characters, falls back to a sanitized project name then the provided fallback.
  */
 export function getSessionIdShort(fallback?: string): string;
 
@@ -93,11 +106,19 @@ export function writeFile(filePath: string, content: string): void;
 /** Append to a text file, creating parent directories if needed */
 export function appendFile(filePath: string, content: string): void;
 
+export interface ReplaceInFileOptions {
+  /**
+   * When true and search is a string, replaces ALL occurrences (uses String.replaceAll).
+   * Ignored for RegExp patterns — use the `g` flag instead.
+   */
+  all?: boolean;
+}
+
 /**
  * Replace text in a file (cross-platform sed alternative).
  * @returns true if the file was found and updated, false if file not found
  */
-export function replaceInFile(filePath: string, search: string | RegExp, replace: string): boolean;
+export function replaceInFile(filePath: string, search: string | RegExp, replace: string, options?: ReplaceInFileOptions): boolean;
 
 /**
  * Count occurrences of a pattern in a file.

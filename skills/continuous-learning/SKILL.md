@@ -1,6 +1,7 @@
 ---
 name: continuous-learning
 description: Automatically extract reusable patterns from Claude Code sessions and save them as learned skills for future use.
+origin: ECC
 ---
 
 # Continuous Learning Skill
@@ -14,6 +15,10 @@ Automatically evaluates Claude Code sessions on end to extract reusable patterns
 - Reviewing or curating learned skills in `~/.claude/skills/learned/`
 - Adjusting extraction thresholds or pattern categories
 - Comparing v1 (this) vs v2 (instinct-based) approaches
+
+## Status
+
+This v1 skill is still supported, but `continuous-learning-v2` is the preferred path for new installs. Keep v1 when you explicitly want the simpler Stop-hook extraction flow or need compatibility with older learned-skill workflows.
 
 ## How It Works
 
@@ -91,7 +96,7 @@ Add to your `~/.claude/settings.json`:
 
 ## Comparison Notes (Research: Jan 2025)
 
-### vs Homunculus (github.com/humanplane/homunculus)
+### vs Homunculus
 
 Homunculus v2 takes a more sophisticated approach:
 
@@ -115,4 +120,4 @@ Homunculus v2 takes a more sophisticated approach:
 4. **Domain tagging** - code-style, testing, git, debugging, etc.
 5. **Evolution path** - Cluster related instincts into skills/commands
 
-See: `/Users/affoon/Documents/tasks/12-continuous-learning-v2.md` for full spec.
+See: `docs/continuous-learning-v2-spec.md` for full spec.
