@@ -16,6 +16,13 @@ const script = path.join(
   'hooks',
   'session-activity-tracker.js'
 );
+const {
+  buildActivityRow,
+  extractFileEvents,
+  extractFilePaths,
+  summarizeOutput,
+  run,
+} = require(script);
 
 function test(name, fn) {
   try {
@@ -50,6 +57,15 @@ function runScript(input, envOverrides = {}, options = {}) {
     cwd: options.cwd,
   });
   return { code: result.status || 0, stdout: result.stdout || '', stderr: result.stderr || '' };
+}
+
+function readMetricRows(homeDir) {
+  const metricsFile = path.join(homeDir, '.claude', 'metrics', 'tool-usage.jsonl');
+  return fs.readFileSync(metricsFile, 'utf8')
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
 }
 
 function runTests() {
@@ -309,6 +325,58 @@ function runTests() {
     fs.rmSync(repoDir, { recursive: true, force: true });
   }) ? passed++ : failed++);
 
+  (test('resolves repo-relative paths even when the hook runs from a nested cwd', () => {
+    const tmpHome = makeTempDir();
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-activity-tracker-nested-repo-'));
+
+    spawnSync('git', ['init'], { cwd: repoDir, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.email', 'ecc@example.com'], { cwd: repoDir, encoding: 'utf8' });
+    spawnSync('git', ['config', 'user.name', 'ECC Tests'], { cwd: repoDir, encoding: 'utf8' });
+
+    const srcDir = path.join(repoDir, 'src');
+    const nestedCwd = path.join(repoDir, 'subdir');
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.mkdirSync(nestedCwd, { recursive: true });
+
+    const trackedFile = path.join(srcDir, 'app.ts');
+    fs.writeFileSync(trackedFile, 'const count = 1;\n', 'utf8');
+    spawnSync('git', ['add', 'src/app.ts'], { cwd: repoDir, encoding: 'utf8' });
+    spawnSync('git', ['commit', '-m', 'init'], { cwd: repoDir, encoding: 'utf8' });
+
+    fs.writeFileSync(trackedFile, 'const count = 2;\n', 'utf8');
+
+    const input = {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: 'src/app.ts',
+        content: 'const count = 2;\n',
+      },
+      tool_output: { output: 'updated src/app.ts' },
+    };
+    const result = runScript(input, {
+      ...withTempHome(tmpHome),
+      CLAUDE_HOOK_EVENT_NAME: 'PostToolUse',
+      ECC_SESSION_ID: 'ecc-session-nested-cwd',
+    }, {
+      cwd: nestedCwd,
+    });
+    assert.strictEqual(result.code, 0);
+
+    const metricsFile = path.join(tmpHome, '.claude', 'metrics', 'tool-usage.jsonl');
+    const row = JSON.parse(fs.readFileSync(metricsFile, 'utf8').trim());
+    assert.deepStrictEqual(row.file_events, [
+      {
+        path: 'src/app.ts',
+        action: 'modify',
+        diff_preview: 'const count = 1; -> const count = 2;',
+        patch_preview: '@@ -1 +1 @@\n-const count = 1;\n+const count = 2;',
+      },
+    ]);
+
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }) ? passed++ : failed++);
+
   (test('prefers ECC_SESSION_ID over CLAUDE_SESSION_ID and redacts bash summaries', () => {
     const tmpHome = makeTempDir();
     const input = {
@@ -349,6 +417,246 @@ function runTests() {
     });
     assert.strictEqual(result.code, 0);
     assert.strictEqual(result.stdout, invalidInput);
+
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }) ? passed++ : failed++);
+
+  (test('skips non-PostToolUse events and rows without required identifiers', () => {
+    assert.strictEqual(buildActivityRow(
+      { tool_name: 'Read', tool_input: { file_path: 'README.md' } },
+      { CLAUDE_HOOK_EVENT_NAME: 'PreToolUse', ECC_SESSION_ID: 'sess' }
+    ), null);
+    assert.strictEqual(buildActivityRow(
+      { tool_name: 'Read', tool_input: { file_path: 'README.md' } },
+      { CLAUDE_HOOK_EVENT_NAME: 'PostToolUse' }
+    ), null);
+    assert.strictEqual(buildActivityRow(
+      { tool_input: { file_path: 'README.md' } },
+      { CLAUDE_HOOK_EVENT_NAME: 'PostToolUse', ECC_SESSION_ID: 'sess' }
+    ), null);
+  }) ? passed++ : failed++);
+
+  (test('sanitizes nested params, long summaries, and output variants', () => {
+    const longValue = `start ${'x'.repeat(260)} ghp_${'A'.repeat(20)}`;
+    const row = buildActivityRow(
+      {
+        tool_name: 'Lookup',
+        tool_input: {
+          query: longValue,
+          secret: `gho_${'B'.repeat(20)}`,
+          count: 3,
+          enabled: false,
+          omitted: null,
+          nested: { a: { b: { c: { d: 'too deep' } } } },
+          list: [1, true, null, 4],
+        },
+        tool_output: `line one\nline two ${'y'.repeat(260)}`,
+      },
+      { CLAUDE_HOOK_EVENT_NAME: 'PostToolUse', CLAUDE_SESSION_ID: 'claude-fallback' }
+    );
+
+    assert.strictEqual(row.session_id, 'claude-fallback');
+    assert.strictEqual(row.file_paths.length, 0);
+    assert.ok(row.input_summary.endsWith('...'), 'Expected long shallow summary to be truncated');
+    assert.ok(!row.input_summary.includes('ghp_'), 'Expected GitHub token redaction in input summary');
+    assert.ok(row.output_summary.endsWith('...'), 'Expected long output summary to be truncated');
+    assert.ok(!row.output_summary.includes('\n'), 'Expected output summary to normalize whitespace');
+
+    const params = JSON.parse(row.input_params_json);
+    assert.strictEqual(params.count, 3);
+    assert.strictEqual(params.enabled, false);
+    assert.strictEqual(params.omitted, null);
+    assert.strictEqual(params.secret, '<REDACTED>');
+    assert.strictEqual(params.nested.a.b.c, '[Truncated]');
+    assert.deepStrictEqual(params.list.slice(0, 3), [1, true, null]);
+    assert.strictEqual(params.list[3], 4);
+    assert.ok(params.query.endsWith('...'), 'Expected long param value to be truncated');
+
+    assert.strictEqual(summarizeOutput(null), '');
+    assert.strictEqual(summarizeOutput(undefined), '');
+    assert.strictEqual(summarizeOutput('hello\nworld'), 'hello world');
+    assert.strictEqual(summarizeOutput({ ok: true }), '{"ok":true}');
+  }) ? passed++ : failed++);
+
+  (test('extracts file paths from nested arrays while filtering duplicates and remote URIs', () => {
+    const paths = extractFilePaths({
+      file_paths: [
+        'src/a.js',
+        'src/a.js',
+        'https://example.com/file.js',
+        '',
+        { file_path: 'src/b.js' },
+      ],
+      nested: {
+        source_path: 'app://connector/item',
+        deep: [
+          { new_file_path: 'src/c.js' },
+          { old_file_path: 'plugin://plugin/item' },
+          42,
+        ],
+      },
+      ignored: 'not-a-path-field',
+    });
+
+    assert.deepStrictEqual(paths, ['src/a.js', 'src/b.js', 'src/c.js']);
+    assert.deepStrictEqual(extractFilePaths(null), []);
+    assert.deepStrictEqual(extractFilePaths('src/not-collected.js'), []);
+  }) ? passed++ : failed++);
+
+  (test('extracts file event previews for create delete and one-sided edits', () => {
+    const events = extractFileEvents('Write', {
+      files: [
+        {
+          file_path: 'src/new.ts',
+          content: 'first line\nsecond line',
+        },
+        {
+          file_path: 'src/new.ts',
+          content: 'first line\nsecond line',
+        },
+        {
+          file_path: 'https://example.com/remote.ts',
+          content: 'ignored',
+        },
+      ],
+    });
+    assert.deepStrictEqual(events, [
+      {
+        path: 'src/new.ts',
+        action: 'create',
+        diff_preview: '+ first line second line',
+        patch_preview: '+ first line second line',
+      },
+    ]);
+
+    assert.deepStrictEqual(extractFileEvents('Remove', {
+      file_path: 'src/old.ts',
+      content: 'legacy line',
+    }), [
+      {
+        path: 'src/old.ts',
+        action: 'delete',
+        patch_preview: '- legacy line',
+      },
+    ]);
+
+    assert.deepStrictEqual(extractFileEvents('Edit', {
+      edits: [
+        { file_path: 'src/before.ts', old_string: 'legacy', new_string: '' },
+        { file_path: 'src/after.ts', old_string: '', new_string: 'modern' },
+        { file_path: 'src/no-preview.ts', old_string: '', new_string: '' },
+      ],
+    }), [
+      {
+        path: 'src/before.ts',
+        action: 'modify',
+        diff_preview: 'legacy ->',
+        patch_preview: '@@\n- legacy',
+      },
+      {
+        path: 'src/after.ts',
+        action: 'modify',
+        diff_preview: '-> modern',
+        patch_preview: '@@\n+ modern',
+      },
+      { path: 'src/no-preview.ts', action: 'modify' },
+    ]);
+
+    assert.deepStrictEqual(extractFileEvents('Rename', {
+      old_file_path: 'src/old-name.ts',
+      new_file_path: 'src/new-name.ts',
+    }), [
+      { path: 'src/old-name.ts', action: 'move' },
+      { path: 'src/new-name.ts', action: 'move' },
+    ]);
+
+    assert.deepStrictEqual(extractFileEvents('Read', null), []);
+    assert.deepStrictEqual(extractFileEvents('Touch', { file_path: 'src/touched.ts' }), [
+      { path: 'src/touched.ts', action: 'touch' },
+    ]);
+  }) ? passed++ : failed++);
+
+  (test('records creation previews unchanged when running outside a git repository', () => {
+    const tmpHome = makeTempDir();
+    const tmpCwd = makeTempDir();
+
+    const input = {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: 'created.txt',
+        content: 'alpha\nbeta',
+      },
+      tool_output: 17,
+    };
+    const result = runScript(input, {
+      ...withTempHome(tmpHome),
+      CLAUDE_HOOK_EVENT_NAME: 'PostToolUse',
+      ECC_SESSION_ID: 'ecc-session-non-git-create',
+    }, {
+      cwd: tmpCwd,
+    });
+
+    assert.strictEqual(result.code, 0);
+    const [row] = readMetricRows(tmpHome);
+    assert.strictEqual(row.output_summary, '17');
+    assert.deepStrictEqual(row.file_events, [
+      {
+        path: 'created.txt',
+        action: 'create',
+        diff_preview: '+ alpha beta',
+        patch_preview: '+ alpha beta',
+      },
+    ]);
+
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(tmpCwd, { recursive: true, force: true });
+  }) ? passed++ : failed++);
+
+  (test('preserves absolute paths outside the repo without git enrichment', () => {
+    const tmpHome = makeTempDir();
+    const outsideDir = makeTempDir();
+    const outsideFile = path.join(outsideDir, 'outside.txt');
+    fs.writeFileSync(outsideFile, 'outside', 'utf8');
+
+    const input = {
+      tool_name: 'Read',
+      tool_input: {
+        file_path: outsideFile,
+      },
+      tool_output: 'read outside',
+    };
+    const result = runScript(input, {
+      ...withTempHome(tmpHome),
+      CLAUDE_HOOK_EVENT_NAME: 'PostToolUse',
+      ECC_SESSION_ID: 'ecc-session-absolute-outside',
+    });
+
+    assert.strictEqual(result.code, 0);
+    const [row] = readMetricRows(tmpHome);
+    assert.deepStrictEqual(row.file_paths, [outsideFile]);
+    assert.deepStrictEqual(row.file_events, [
+      { path: outsideFile, action: 'read' },
+    ]);
+
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  }) ? passed++ : failed++);
+
+  (test('passes empty stdin through without creating metrics', () => {
+    const tmpHome = makeTempDir();
+    const result = runScript('', {
+      ...withTempHome(tmpHome),
+      CLAUDE_HOOK_EVENT_NAME: 'PostToolUse',
+      ECC_SESSION_ID: 'sess-empty',
+    });
+
+    assert.strictEqual(result.code, 0);
+    assert.strictEqual(result.stdout, '');
+    assert.strictEqual(run(''), '');
+    assert.strictEqual(
+      fs.existsSync(path.join(tmpHome, '.claude', 'metrics', 'tool-usage.jsonl')),
+      false
+    );
 
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }) ? passed++ : failed++);
