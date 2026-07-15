@@ -123,6 +123,40 @@ function runTests() {
     }
   })) passed++; else failed++;
 
+  if (test('rewrites namespaced skill links to the ecc/ rules path (#2340)', () => {
+    const homeDir = createTempDir('install-apply-home-');
+    const projectDir = createTempDir('install-apply-project-');
+
+    try {
+      const result = run(['typescript'], { cwd: projectDir, homeDir });
+      assert.strictEqual(result.code, 0, result.stderr);
+
+      const claudeRoot = path.join(homeDir, '.claude');
+      const skillPath = path.join(claudeRoot, 'skills', 'ecc', 'react-patterns', 'SKILL.md');
+      assert.ok(fs.existsSync(skillPath), 'react-patterns SKILL.md should be installed');
+
+      const content = fs.readFileSync(skillPath, 'utf8');
+      assert.ok(
+        content.includes('../../../rules/ecc/react/'),
+        'source-relative rules link should be rewritten for the ecc/ namespace'
+      );
+      assert.ok(
+        !content.includes('](../../rules/'),
+        'no un-namespaced ](../../rules/ links should remain'
+      );
+
+      // The rewritten link must resolve to a file that actually exists on disk.
+      const linkTarget = path.join(
+        path.dirname(skillPath),
+        '../../../rules/ecc/react/hooks.md'
+      );
+      assert.ok(fs.existsSync(linkTarget), 'rewritten link target should exist');
+    } finally {
+      cleanup(homeDir);
+      cleanup(projectDir);
+    }
+  })) passed++; else failed++;
+
   if (test('installs Cursor configs and writes install-state', () => {
     const homeDir = createTempDir('install-apply-home-');
     const projectDir = createTempDir('install-apply-project-');
@@ -150,8 +184,7 @@ function runTests() {
       const mcpConfig = readJson(path.join(projectDir, '.cursor', 'mcp.json'));
       assert.strictEqual(hooksConfig.version, 1);
       assert.ok(hooksConfig.hooks.sessionStart, 'Should keep Cursor sessionStart hooks');
-      assert.ok(mcpConfig.mcpServers.github, 'Should install shared MCP servers into Cursor');
-      assert.ok(mcpConfig.mcpServers.context7, 'Should include bundled documentation MCPs');
+      assert.ok(mcpConfig.mcpServers['chrome-devtools'], 'Should install shared MCP servers into Cursor');
 
       const statePath = path.join(projectDir, '.cursor', 'ecc-install-state.json');
       const state = readJson(statePath);
@@ -194,8 +227,7 @@ function runTests() {
 
       const mcpConfig = readJson(path.join(projectDir, '.cursor', 'mcp.json'));
       assert.ok(mcpConfig.mcpServers.custom, 'Should preserve existing custom Cursor MCP servers');
-      assert.ok(mcpConfig.mcpServers.github, 'Should merge bundled GitHub MCP server');
-      assert.ok(mcpConfig.mcpServers.playwright, 'Should merge bundled Playwright MCP server');
+      assert.ok(mcpConfig.mcpServers['chrome-devtools'], 'Should merge the bundled chrome-devtools MCP server');
     } finally {
       cleanup(homeDir);
       cleanup(projectDir);
@@ -226,6 +258,74 @@ function runTests() {
           operation.destinationPath.endsWith(path.join('.agent', 'workflows', 'plan.md'))
         )),
         'Should record manifest command file copy operation'
+      );
+    } finally {
+      cleanup(homeDir);
+      cleanup(projectDir);
+    }
+  })) passed++; else failed++;
+
+  if (test('installs JoyCode profile through managed install-state', () => {
+    const homeDir = createTempDir('install-apply-home-');
+    const projectDir = createTempDir('install-apply-project-');
+
+    try {
+      const result = run(['--target', 'joycode', '--profile', 'minimal'], { cwd: projectDir, homeDir });
+      assert.strictEqual(result.code, 0, result.stderr);
+
+      assert.ok(fs.existsSync(path.join(projectDir, '.joycode', 'rules', 'common-coding-style.md')));
+      assert.ok(!fs.existsSync(path.join(projectDir, '.joycode', 'rules', 'common', 'coding-style.md')));
+      assert.ok(fs.existsSync(path.join(projectDir, '.joycode', 'agents', 'architect.md')));
+      assert.ok(fs.existsSync(path.join(projectDir, '.joycode', 'commands', 'plan.md')));
+      assert.ok(fs.existsSync(path.join(projectDir, '.joycode', 'skills', 'tdd-workflow', 'SKILL.md')));
+      assert.ok(fs.existsSync(path.join(projectDir, '.joycode', 'mcp-configs', 'mcp-servers.json')));
+      assert.ok(!fs.existsSync(path.join(projectDir, '.joycode', 'hooks')));
+
+      const statePath = path.join(projectDir, '.joycode', 'ecc-install-state.json');
+      const state = readJson(statePath);
+      assert.strictEqual(state.target.id, 'joycode-project');
+      assert.deepStrictEqual(state.request.modules, []);
+      assert.strictEqual(state.request.profile, 'minimal');
+      assert.ok(state.resolution.selectedModules.includes('workflow-quality'));
+      assert.ok(
+        state.operations.some(operation => (
+          operation.destinationPath.endsWith(path.join('.joycode', 'skills', 'tdd-workflow', 'SKILL.md'))
+        )),
+        'Should record JoyCode skill file operation'
+      );
+    } finally {
+      cleanup(homeDir);
+      cleanup(projectDir);
+    }
+  })) passed++; else failed++;
+
+  if (test('installs Qwen profile through managed home install-state', () => {
+    const homeDir = createTempDir('install-apply-home-');
+    const projectDir = createTempDir('install-apply-project-');
+
+    try {
+      const result = run(['--target', 'qwen', '--profile', 'minimal'], { cwd: projectDir, homeDir });
+      assert.strictEqual(result.code, 0, result.stderr);
+
+      assert.ok(fs.existsSync(path.join(homeDir, '.qwen', 'QWEN.md')));
+      assert.ok(fs.existsSync(path.join(homeDir, '.qwen', 'rules', 'common', 'coding-style.md')));
+      assert.ok(fs.existsSync(path.join(homeDir, '.qwen', 'agents', 'architect.md')));
+      assert.ok(fs.existsSync(path.join(homeDir, '.qwen', 'commands', 'plan.md')));
+      assert.ok(fs.existsSync(path.join(homeDir, '.qwen', 'skills', 'tdd-workflow', 'SKILL.md')));
+      assert.ok(fs.existsSync(path.join(homeDir, '.qwen', 'mcp-configs', 'mcp-servers.json')));
+      assert.ok(!fs.existsSync(path.join(homeDir, '.qwen', 'hooks')));
+
+      const statePath = path.join(homeDir, '.qwen', 'ecc-install-state.json');
+      const state = readJson(statePath);
+      assert.strictEqual(state.target.id, 'qwen-home');
+      assert.deepStrictEqual(state.request.modules, []);
+      assert.strictEqual(state.request.profile, 'minimal');
+      assert.ok(state.resolution.selectedModules.includes('workflow-quality'));
+      assert.ok(
+        state.operations.some(operation => (
+          operation.destinationPath.endsWith(path.join('.qwen', 'skills', 'tdd-workflow', 'SKILL.md'))
+        )),
+        'Should record Qwen skill file operation'
       );
     } finally {
       cleanup(homeDir);
@@ -266,6 +366,28 @@ function runTests() {
       assert.ok(result.stdout.includes('Included components: (none)'));
       assert.ok(result.stdout.includes('Selected modules: rules-core, agents-core, commands-core, hooks-runtime, platform-configs, workflow-quality'));
       assert.ok(!fs.existsSync(path.join(homeDir, '.claude', 'ecc', 'install-state.json')));
+    } finally {
+      cleanup(homeDir);
+      cleanup(projectDir);
+    }
+  })) passed++; else failed++;
+
+  if (test('full profile dry-runs include delivery-gate in the install plan', () => {
+    const homeDir = createTempDir('install-apply-home-');
+    const projectDir = createTempDir('install-apply-project-');
+
+    try {
+      const result = run(['--profile', 'full', '--dry-run', '--json'], { cwd: projectDir, homeDir });
+      assert.strictEqual(result.code, 0, result.stderr);
+      const parsed = JSON.parse(result.stdout);
+      assert.strictEqual(parsed.dryRun, true);
+      assert.ok(parsed.plan.selectedModuleIds.includes('workflow-quality'));
+      assert.ok(
+        parsed.plan.operations.some(operation => (
+          String(operation.sourceRelativePath || '').replace(/\\/g, '/').startsWith('skills/delivery-gate/')
+        )),
+        'Full profile dry-run should include the delivery-gate skill'
+      );
     } finally {
       cleanup(homeDir);
       cleanup(projectDir);
@@ -462,6 +584,10 @@ function runTests() {
       assert.ok(
         installedBashDispatcherEntry.hooks[0].command.includes('pre-bash-dispatcher.js'),
         'hooks/hooks.json should point the Bash preflight contract at the consolidated dispatcher'
+      );
+      assert.ok(
+        !installedBashDispatcherEntry.hooks[0].command.includes('\\"'),
+        'hooks/hooks.json should avoid escaped double quotes that break Windows Git Bash parsing'
       );
       assert.ok(
         !installedBashDispatcherEntry.hooks[0].command.includes('${CLAUDE_PLUGIN_ROOT}'),

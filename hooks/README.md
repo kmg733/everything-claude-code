@@ -16,6 +16,9 @@ User request → Claude picks a tool → PreToolUse hook runs → Tool executes 
 
 ## Hooks in This Plugin
 
+Memory persistence lifecycle definitions live in `hooks/memory-persistence/`.
+The executable hook graph remains `hooks/hooks.json`; the memory persistence directory is the stable contract for SessionStart, PreCompact, observation, activity tracking, and SessionEnd behavior.
+
 ## Installing These Hooks Manually
 
 For Claude Code manual installs, do not paste the raw repo `hooks.json` into `~/.claude/settings.json` or copy it directly into `~/.claude/hooks/hooks.json`. The checked-in file is plugin/repo-oriented and is meant to be installed through the ECC installer or loaded as a plugin.
@@ -60,6 +63,7 @@ That installs resolved hooks to `~/.claude/hooks/hooks.json`. On Windows, the Cl
 | Hook | Event | What It Does |
 |------|-------|-------------|
 | **Session start** | `SessionStart` | Loads previous context and detects package manager |
+| **Plan Canvas sessions** | `SessionStart` | Surfaces open Plan Canvas browser reviews so a fresh session can resume the loop |
 | **Pre-compact** | `PreCompact` | Saves state before context compaction |
 | **Console.log audit** | `Stop` | Checks all modified files for `console.log` after each response |
 | **Session summary** | `Stop` | Persists session state when transcript path is available |
@@ -107,6 +111,15 @@ export ECC_SESSION_START_MAX_CHARS=4000
 
 # Disable SessionStart additional context entirely
 export ECC_SESSION_START_CONTEXT=off
+
+# Keep context/scope/loop warnings but suppress API-rate cost estimates
+export ECC_CONTEXT_MONITOR_COST_WARNINGS=off
+```
+
+Windows PowerShell:
+
+```powershell
+[Environment]::SetEnvironmentVariable('ECC_CONTEXT_MONITOR_COST_WARNINGS', 'off', 'User')
 ```
 
 Profiles:
